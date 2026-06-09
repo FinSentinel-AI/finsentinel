@@ -1,8 +1,6 @@
 import os
-import asyncio
 import json
 from datetime import datetime, timezone
-from typing import AsyncGenerator
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,22 +25,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-session_service = InMemorySessionService()
 APP_NAME = "finsentinel"
 
-class InvestigateRequest(BaseModel):
-    query: str
-    session_id: str | None = None
+
+def _ts() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 @app.get("/healthz")
 async def health():
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"status": "ok", "timestamp": _ts()}
 
 
 @app.websocket("/ws/investigate")
 async def investigate_ws(websocket: WebSocket):
     await websocket.accept()
+    session_service = InMemorySessionService()
     try:
         data = await websocket.receive_text()
         payload = json.loads(data)
@@ -53,22 +51,27 @@ async def investigate_ws(websocket: WebSocket):
         await websocket.send_json({
             "type": "status",
             "message": "Investigation started — deploying 5 specialist agents...",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": _ts(),
         })
 
         agent = create_orchestrator()
-        session = session_service.create_session(
+
+        # ADK 2.x: create_session is async
+        await session_service.create_session(
             app_name=APP_NAME,
             user_id=user_id,
             session_id=session_id,
         )
+
         runner = Runner(
             agent=agent,
             app_name=APP_NAME,
             session_service=session_service,
+            auto_create_session=True,
         )
 
         user_message = Content(role="user", parts=[Part(text=query)])
+
         async for event in runner.run_async(
             user_id=user_id,
             session_id=session_id,
@@ -84,7 +87,7 @@ async def investigate_ws(websocket: WebSocket):
                     "type": "final",
                     "agent": "finsentinel_orchestrator",
                     "content": final_text,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": _ts(),
                 })
             elif hasattr(event, "content") and event.content:
                 author = getattr(event, "author", "agent")
@@ -94,28 +97,40 @@ async def investigate_ws(websocket: WebSocket):
                             "type": "agent_step",
                             "agent": author,
                             "content": part.text,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "timestamp": _ts(),
                         })
 
-        await websocket.send_json({"type": "done", "timestamp": datetime.now(timezone.utc).isoformat()})
+        await websocket.send_json({"type": "done", "timestamp": _ts()})
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        await websocket.send_json({"type": "error", "message": str(e)})
+        import traceback
+        await websocket.send_json({"type": "error", "message": str(e), "trace": traceback.format_exc()[-500:]})
+
+
+class InvestigateRequest(BaseModel):
+    query: str
+    session_id: str | None = None
 
 
 @app.post("/api/investigate")
 async def investigate_http(req: InvestigateRequest):
-    """HTTP fallback for investigation (non-streaming)."""
+    """HTTP fallback — non-streaming."""
     session_id = req.session_id or f"session_{datetime.now().timestamp()}"
     user_id = "analyst_1"
+    session_service = InMemorySessionService()
 
     agent = create_orchestrator()
-    session_service.create_session(
+    await session_service.create_session(
         app_name=APP_NAME, user_id=user_id, session_id=session_id
     )
-    runner = Runner(agent=agent, app_name=APP_NAME, session_service=session_service)
+    runner = Runner(
+        agent=agent,
+        app_name=APP_NAME,
+        session_service=session_service,
+        auto_create_session=True,
+    )
 
     user_message = Content(role="user", parts=[Part(text=req.query)])
     result_parts = []
@@ -123,7 +138,7 @@ async def investigate_http(req: InvestigateRequest):
         user_id=user_id, session_id=session_id, new_message=user_message
     ):
         if event.is_final_response() and event.content:
-            for part in event.content.parts or []:
+            for part in (event.content.parts or []):
                 if hasattr(part, "text"):
                     result_parts.append(part.text)
 
