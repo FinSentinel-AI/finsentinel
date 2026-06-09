@@ -87,6 +87,8 @@ export default function App() {
   }
 
   const activeAgents = [...new Set(events.filter(e => e.agent).map(e => e.agent!))]
+  const lastActiveAgent = events.filter(e => e.agent && e.type === 'agent_step').slice(-1)[0]?.agent ?? null
+  const completedAgents = activeAgents.filter(a => a !== lastActiveAgent)
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0f1e', display: 'flex', flexDirection: 'column' }}>
@@ -159,6 +161,10 @@ export default function App() {
 
         {/* Right panel */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          {/* 5-step pipeline progress */}
+          {(running || done) && (
+            <InvestigationFlow completedAgents={completedAgents} activeAgent={running ? lastActiveAgent : null} />
+          )}
           {/* Agent event log */}
           <div ref={logRef} style={{ flex: 1, overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '60vh' }}>
             {events.length === 0 && !running && (
