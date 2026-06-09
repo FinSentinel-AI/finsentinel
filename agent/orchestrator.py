@@ -58,6 +58,9 @@ You are fast, precise, and thorough. What takes a compliance team 3 days, you co
 """
 
 
+MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+
 def create_mongodb_toolset() -> MCPToolset:
     return MCPToolset(
         connection_params=StdioConnectionParams(
@@ -66,10 +69,11 @@ def create_mongodb_toolset() -> MCPToolset:
                 args=["-y", "mongodb-mcp-server"],
                 env={
                     **os.environ,
-                    "ATLAS_URI": os.getenv("MONGODB_URI", ""),
-                    "MCP_READ_ONLY": "false",
+                    "MDB_MCP_CONNECTION_STRING": os.getenv("MONGODB_URI", ""),
+                    "MDB_MCP_TELEMETRY": "disabled",
                 },
-            )
+            ),
+            timeout=60.0,
         )
     )
 
@@ -79,35 +83,35 @@ def create_orchestrator() -> Agent:
     mongodb_toolset = create_mongodb_toolset()
 
     fraud_detector = Agent(
-        model="gemini-2.5-flash",
+        model=MODEL,
         name="fraud_detector",
         description="Detects fraudulent transactions using velocity analysis, structuring detection, Atlas Vector Search semantic similarity, and new-account pattern matching.",
         instruction=FRAUD_DETECTOR_PROMPT,
         tools=[mongodb_toolset],
     )
     aml_analyst = Agent(
-        model="gemini-2.5-flash",
+        model=MODEL,
         name="aml_analyst",
         description="Builds transaction network graphs, detects structuring/layering/round-tripping, cross-references watchlists, and computes BSA reporting obligations.",
         instruction=AML_ANALYST_PROMPT,
         tools=[mongodb_toolset],
     )
     risk_officer = Agent(
-        model="gemini-2.5-flash",
+        model=MODEL,
         name="risk_officer",
         description="Computes composite risk scores, cross-references watchlists, and determines escalation priority for flagged accounts.",
         instruction=RISK_OFFICER_PROMPT,
         tools=[mongodb_toolset],
     )
     compliance_checker = Agent(
-        model="gemini-2.5-flash",
+        model=MODEL,
         name="compliance_checker",
         description="Applies BSA, FINRA, MiFID II, and EU AI Act rules to determine exact filing obligations and compliance deadlines.",
         instruction=COMPLIANCE_CHECKER_PROMPT,
         tools=[mongodb_toolset],
     )
     report_generator = Agent(
-        model="gemini-2.5-flash",
+        model=MODEL,
         name="report_generator",
         description="Synthesizes all findings into FinCEN 111-format SAR reports, writes audit trails to MongoDB, and produces human review checklists.",
         instruction=REPORT_GENERATOR_PROMPT,
@@ -115,7 +119,7 @@ def create_orchestrator() -> Agent:
     )
 
     orchestrator = Agent(
-        model="gemini-2.5-flash",
+        model=MODEL,
         name="finsentinel_orchestrator",
         description="Autonomous financial crime intelligence platform — coordinates fraud detection, AML analysis, risk scoring, compliance checking, and SAR generation.",
         instruction=ORCHESTRATOR_PROMPT,
