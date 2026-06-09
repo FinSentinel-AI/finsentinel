@@ -43,7 +43,7 @@ Use this pipeline on `transactions` collection with the `fraud_vector_idx` index
     "$vectorSearch": {
       "index": "fraud_vector_idx",
       "path": "embedding",
-      "queryVector": "<768-dim vector of the transaction description>",
+      "queryVector": "<3072-dim vector of the transaction description>",
       "numCandidates": 50,
       "limit": 5,
       "filter": {"fraud_flag": true}

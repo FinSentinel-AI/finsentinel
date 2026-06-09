@@ -45,22 +45,21 @@ NORMAL_DESCRIPTIONS = [
 
 
 def get_embedding(text: str) -> list[float]:
-    """Gemini text-embedding-004 (768-dim). Falls back to deterministic pseudo-random if no key."""
+    """gemini-embedding-2 (3072-dim). Falls back to deterministic pseudo-random if no key."""
     if GEMINI_API_KEY:
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=GEMINI_API_KEY)
-            result = genai.embed_content(
-                model="models/text-embedding-004",
-                content=text,
-                task_type="RETRIEVAL_DOCUMENT",
+            from google import genai as ggenai
+            _client = ggenai.Client(api_key=GEMINI_API_KEY)
+            result = _client.models.embed_content(
+                model="gemini-embedding-2",
+                contents=text,
             )
-            return result["embedding"]
+            return list(result.embeddings[0].values)
         except Exception as e:
             print(f"  [embedding API error: {e}]")
     # Deterministic fallback seeded from text hash — consistent across runs
     rng = random.Random(hash(text) & 0xFFFFFFFF)
-    return [rng.gauss(0, 0.1) for _ in range(768)]
+    return [rng.gauss(0, 0.1) for _ in range(3072)]
 
 
 def random_account_id():
@@ -85,7 +84,11 @@ def seed():
 
     # ── Customers ──────────────────────────────────────────────────────────────
     print("\n[1/7] Seeding customers...")
-    accounts = [random_account_id() for _ in range(500)]
+    # generate unique account IDs
+    acc_set = set()
+    while len(acc_set) < 500:
+        acc_set.add(random_account_id())
+    accounts = list(acc_set)
     customers = []
     for acc in accounts:
         age_days = random.randint(1, 2000)
@@ -335,7 +338,7 @@ def seed():
         search_index = SearchIndexModel(
             definition={
                 "fields": [
-                    {"type": "vector",  "path": "embedding",   "numDimensions": 768, "similarity": "cosine"},
+                    {"type": "vector",  "path": "embedding",   "numDimensions": 3072, "similarity": "cosine"},
                     {"type": "filter",  "path": "fraud_flag"},
                     {"type": "filter",  "path": "fraud_type"},
                 ]
