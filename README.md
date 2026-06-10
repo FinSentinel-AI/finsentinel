@@ -197,6 +197,8 @@ make deploy PROJECT_ID=your-gcp-project-id MONGODB_URI=your-uri
 | Member | Role |
 |---|---|
 | **Emmanuel Adutwum** | Lead Developer & Principal Architect — multi-agent ADK orchestration, MongoDB MCP integration, fraud/AML detection algorithms, FastAPI backend, full system design |
+| **Shiv Kumar Mishra** ([@shivkumarmishra718](https://github.com/shivkumarmishra718)) | Contributor |
+| **Lekha Saradhi** ([@lekhakuncham](https://github.com/lekhakuncham)) | Contributor |
 
 ---
 
