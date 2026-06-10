@@ -88,7 +88,8 @@ export default function App() {
     startRef.current = Date.now()
     timerRef.current = setInterval(() => setElapsedMs(Date.now() - startRef.current), 100)
 
-    const wsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.host}/ws/investigate`
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = import.meta.env.VITE_WS_URL || `${wsProtocol}//${window.location.host}/ws/investigate`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
