@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Shield, AlertTriangle, CheckCircle, Clock, Zap } from 'lucide-react'
+import { Shield, AlertTriangle, CheckCircle, Clock, Zap, Database, Network, TrendingUp } from 'lucide-react'
 import InvestigationFlow from './components/InvestigationFlow'
 import SARReport from './components/SARReport'
 
@@ -21,12 +21,33 @@ const AGENT_LABELS: Record<string, string> = {
   report_generator: 'Report Generator',
 }
 
+interface SimilarCase {
+  transaction_id: string
+  fraud_type?: string
+  amount?: number
+  description?: string
+  score?: number
+}
+
+interface ImpactStats {
+  flagged_amount: number
+  investigation_time_s: number
+  manual_time_s: number
+  speedup_x: number
+  est_cost_usd: number
+  transactions_analyzed: number
+  accounts_flagged: number
+}
+
 interface AgentEvent {
   type: string
   agent?: string
   content?: string
   message?: string
   timestamp: string
+  cases?: SimilarCase[]
+  stats?: ImpactStats
+  investigation_id?: string
 }
 
 const PRESET_QUERIES = [
@@ -43,6 +64,9 @@ export default function App() {
   const [done, setDone] = useState(false)
   const [finalReport, setFinalReport] = useState('')
   const [elapsedMs, setElapsedMs] = useState(0)
+  const [similarCases, setSimilarCases] = useState<SimilarCase[]>([])
+  const [impactStats, setImpactStats] = useState<ImpactStats | null>(null)
+  const [auditEvent, setAuditEvent] = useState<AgentEvent | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const startRef = useRef<number>(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -56,6 +80,9 @@ export default function App() {
     if (running) return
     setEvents([])
     setFinalReport('')
+    setSimilarCases([])
+    setImpactStats(null)
+    setAuditEvent(null)
     setDone(false)
     setRunning(true)
     startRef.current = Date.now()
@@ -71,6 +98,12 @@ export default function App() {
       if (evt.type === 'final') {
         setFinalReport(evt.content || '')
         setEvents(prev => [...prev, evt])
+      } else if (evt.type === 'similar_cases') {
+        setSimilarCases(evt.cases || [])
+      } else if (evt.type === 'impact_stats') {
+        setImpactStats(evt.stats || null)
+      } else if (evt.type === 'audit_saved') {
+        setAuditEvent(evt)
       } else if (evt.type === 'done') {
         setRunning(false)
         setDone(true)
@@ -196,7 +229,61 @@ export default function App() {
                 </div>
               )
             })}
+
+            {/* Similar past fraud cases via Atlas $vectorSearch */}
+            {similarCases.length > 0 && (
+              <div style={{ background: '#0f172a', border: '1px solid #6366f133', borderRadius: 8, padding: '12px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <Network size={14} color="#6366f1" />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 1 }}>
+                    Similar Past Cases — Atlas $vectorSearch
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {similarCases.map((c, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#cbd5e1', padding: '6px 8px', background: '#020817', borderRadius: 6 }}>
+                      <span style={{ color: '#6366f1', fontFamily: 'monospace', fontSize: 11 }}>{c.transaction_id}</span>
+                      <span style={{ color: '#94a3b8' }}>{c.fraud_type}</span>
+                      <span style={{ marginLeft: 'auto', color: '#e2e8f0' }}>${(c.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      <span style={{ color: '#10b981', fontFamily: 'monospace', fontSize: 11 }}>sim {(c.score ?? 0).toFixed(3)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Impact stats strip */}
+          {impactStats && (
+            <div style={{ borderTop: '1px solid #1e2d4a', padding: '16px 24px', display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <TrendingUp size={16} color="#10b981" />
+                <span style={{ fontSize: 13, color: '#e2e8f0' }}>
+                  <strong>${impactStats.flagged_amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+                  <span style={{ color: '#64748b' }}> flagged</span>
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: '#e2e8f0' }}>
+                <strong>{impactStats.investigation_time_s}s</strong>
+                <span style={{ color: '#64748b' }}> vs 3 days </span>
+                <span style={{ color: '#10b981' }}>({impactStats.speedup_x.toLocaleString()}x faster)</span>
+              </div>
+              <div style={{ fontSize: 13, color: '#e2e8f0' }}>
+                <strong>{impactStats.transactions_analyzed.toLocaleString()}</strong>
+                <span style={{ color: '#64748b' }}> transactions analyzed</span>
+              </div>
+              <div style={{ fontSize: 13, color: '#e2e8f0' }}>
+                <strong>~${impactStats.est_cost_usd.toFixed(4)}</strong>
+                <span style={{ color: '#64748b' }}> Gemini API cost</span>
+              </div>
+              {auditEvent && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 12, color: '#10b981' }}>
+                  <Database size={14} />
+                  Saved to MongoDB Atlas ({auditEvent.investigation_id})
+                </div>
+              )}
+            </div>
+          )}
 
           {/* SAR Report */}
           {finalReport && <SARReport content={finalReport} />}

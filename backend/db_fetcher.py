@@ -139,6 +139,88 @@ def fetch_investigation_context() -> dict:
     return ctx
 
 
+def fetch_similar_cases(ctx: dict, top_k: int = 5) -> list[dict]:
+    """
+    Run an Atlas $vectorSearch against fraud_vector_idx using the embedding of
+    the top fraud-flagged transaction, surfacing semantically similar past cases
+    (the key MongoDB Atlas differentiator for the hackathon).
+    """
+    fraud_flagged = ctx.get("fraud_flagged") or []
+    if not fraud_flagged:
+        return []
+
+    client = _client()
+    db = client["finsentinel"]
+
+    seed_txn_id = fraud_flagged[0].get("transaction_id")
+    seed = db.transactions.find_one({"transaction_id": seed_txn_id}, {"embedding": 1})
+    if not seed or "embedding" not in seed:
+        client.close()
+        return []
+
+    results = list(db.transactions.aggregate([
+        {
+            "$vectorSearch": {
+                "index": "fraud_vector_idx",
+                "path": "embedding",
+                "queryVector": seed["embedding"],
+                "numCandidates": 200,
+                "limit": top_k + 1,  # +1 because the seed transaction matches itself
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "transaction_id": 1,
+                "from_account": 1,
+                "to_account": 1,
+                "amount": 1,
+                "fraud_type": 1,
+                "description": 1,
+                "timestamp": 1,
+                "score": {"$meta": "vectorSearchScore"},
+            }
+        },
+    ]))
+
+    client.close()
+    # Drop the seed transaction itself from the results
+    return [r for r in results if r.get("transaction_id") != seed_txn_id][:top_k]
+
+
+def write_audit_trail(investigation_id: str, query: str, agent_outputs: list[dict], final_report: str, stats: dict) -> None:
+    """
+    Persist the full agent reasoning chain + final SAR to MongoDB Atlas —
+    the regulator-facing "AI decision lineage" audit trail.
+    """
+    client = _client()
+    db = client["finsentinel"]
+    now = datetime.now(timezone.utc).isoformat()
+
+    if agent_outputs:
+        db.audit_log.insert_many([
+            {
+                "investigation_id": investigation_id,
+                "query": query,
+                "agent": o["agent"],
+                "label": o["label"],
+                "output": o["content"],
+                "timestamp": o["timestamp"],
+            }
+            for o in agent_outputs
+        ])
+
+    db.sar_reports.insert_one({
+        "investigation_id": investigation_id,
+        "query": query,
+        "report": final_report,
+        "stats": stats,
+        "created_at": now,
+    })
+
+    client.close()
+
+
 def context_to_text(ctx: dict) -> str:
     """Convert the fetched context dict to a compact text representation."""
     lines = [
